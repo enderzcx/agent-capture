@@ -1,0 +1,33 @@
+# 构建产物：**不进版本库**。源码在 tools/macos/main.swift，由 build.sh 自行编译。
+# 二进制与机器/架构绑定，提交它既没意义又容易和源码不同步。
+tools/macos/build/
+tools/macos/tests/fixture_app
+tools/macos/tests/Fixture*.app/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 录制产物与状态：**绝不入库**（真实媒体、会话、路径）
+*.mp4
+*.mov
+*.m4a
+*.wav
+*.aiff
+*.metrics.json
+*.focus.jsonl
+*.run.json
+*.stop.json
+*.live.json
+*.lock
+*.worker.log
+*.worker.stdout.log
+
+# 本地 job 目录
+run/
+job/
+out/
+
+# macOS
+.DS_Store
