@@ -28,6 +28,9 @@ run "capture_targets（目标防误录 / live 校对 / 后端能力边界）" \
 run "capture_state（状态机 / 并发 / 原子写 / CAS / 版本绑定）" \
     "$PY" "$ROOT/tests/test_capture_state.py"
 
+run "capture_worker（假录制器反例：令牌/期望轨道/提前退出/组合判定/清理）" \
+    "$PY" "$ROOT/tests/test_capture_worker.py"
+
 printf '\n'
 if [ "$rc" -eq 0 ]; then
   printf '\033[32m离线测试全部通过\033[0m\n'

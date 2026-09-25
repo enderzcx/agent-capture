@@ -93,6 +93,9 @@ struct Options {
     // 这四件事必须分开：进程起来了不等于录到了东西；游戏开局前没声音
     // 不等于采集失败，**不能**因此死锁等一个永远不来的信号。
     var liveStatus = ""
+    // 本 run 的令牌：写进实时进度文件。调用方据此确认"这个文件是**这一次**录制的"，
+    // 而不是上一次残留（残留会让 worker 把"没开始"读成"已开始"）。
+    var liveToken = ""
 
     static func parse(_ argv: [String]) throws -> Options {
         var o = Options()
@@ -128,6 +131,7 @@ struct Options {
             case "--audio-bundle-id": o.audioBundleId = try value("--audio-bundle-id")
             case "--window-track-log": o.windowTrackLog = try value("--window-track-log")
             case "--live-status": o.liveStatus = try value("--live-status")
+            case "--live-token": o.liveToken = try value("--live-token")
             case "--help", "-h":
                 print("""
                 GameAVRec — app 级游戏原声音视频录制（ScreenCaptureKit）
@@ -160,6 +164,8 @@ struct Options {
                   --live-status <path>        录制过程中**持续更新**的进度文件（可反复覆盖，不受
                                               --overwrite 约束）。区分：采集初始化 / 有效首帧 /
                                               音频通路有数据 / 音频实际有信号。
+                  --live-token <token>        写进实时进度文件的本次 run 令牌。调用方据此确认
+                                              读到的是**这一次**的进度，而不是上一次的残留文件。
                   --quiet                     不打印逐条进度
                 """)
                 exit(0)
@@ -384,6 +390,10 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         liveLastWrite = now
         let obj: [String: Any] = [
             "tool": "GameAVRec",
+            // 令牌让调用方分辨"这一次"与"上一次残留"：没有它，一个陈旧文件
+            // 会被读成 effectively_started=true，把"没开始"误判成"已开始"。
+            "run_token": opts.liveToken,
+            "recorder_pid": Int(ProcessInfo.processInfo.processIdentifier),
             "wall": ISO8601.string(from: Date()),
             "t_rel": now,
             // ① 采集初始化：startCapture 返回（还没证明收到了东西）

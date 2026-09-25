@@ -275,6 +275,7 @@ def build_start_argv(target: Dict[str, Any], out_path: str, *, duration: float =
                      fps: int = 30, max_width: int = 1920,
                      focus_log: str = "", status_file: str = "",
                      metrics_json: str = "", live_status: str = "",
+                     live_token: str = "",
                      overwrite: bool = False,
                      no_video: bool = False) -> List[str]:
     """构造**真正启动录制**的完整参数。"""
@@ -294,6 +295,9 @@ def build_start_argv(target: Dict[str, Any], out_path: str, *, duration: float =
         argv += ["--focus-log", focus_log]
     if live_status:
         argv += ["--live-status", live_status]
+    if live_token:
+        # 令牌让 worker 分辨"本次"与"上一次残留"的进度文件
+        argv += ["--live-token", live_token]
     if no_video:
         argv += ["--no-video"]
     if overwrite:
