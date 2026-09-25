@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-capture-win"
+readme = "README.md"
+version = "0.1.0"
+description = "Windows window-recording backend over obs-websocket 5.x: one explicit window plus its application audio, with refusals instead of silent fallbacks"
+requires-python = ">=3.9"
+dependencies = ["websocket-client>=1.6"]
+
+[project.optional-dependencies]
+test = ["pytest>=7", "websockets>=12"]
+
+[project.scripts]
+agent-capture-win = "agent_capture_win.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning"]

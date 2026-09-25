@@ -91,11 +91,11 @@ python3 scripts/agent_capture.py verify --job-dir ./run --run-id game-01
 
 | 能力 | macOS 后端 | Windows 后端 |
 |---|---|---|
-| 画面：单 app | ✅ 已实现 | ✅ 已实现（代码可用，**未实机**） |
-| 画面：单窗口 | ✅ 已实现（`desktopIndependentWindow`） | ✅ 已实现（**未实机**） |
-| 音频：单 app | ✅ 已实现 | ✅ 已实现（**未实机**） |
+| 画面：单 app | ✅ 已实现 | ❌ **未实现**（只做单窗口，不靠改名声称支持） |
+| 画面：单窗口 | ✅ 已实现（`desktopIndependentWindow`） | ✅ 已实现（协议层已验证；**未实机**） |
+| 音频：单 app | ✅ 已实现 | ✅ 已实现（**未实机**；粒度是 process/app，不是窗口独占） |
 | 音频：单窗口 | ❌ 框架本身没有这个粒度 | ❌ 同 |
-| 整屏 / 整机混音 / 麦克风 | ❌ **本后端未实现**，会被拒 | ❌ 同 |
+| 整屏 / 整机混音 / 麦克风 | ❌ **本后端未实现**，会被拒 | ❌ 同（且**拒绝**接入全局音/麦克风） |
 
 Windows 的 `verified_level` 恒为 `none` 直到有实机证据 ——
 mock 只证明协议与状态机，**不证明能录到画面或声音**。
@@ -115,6 +115,11 @@ mock 只证明协议与状态机，**不证明能录到画面或声音**。
 把它当失败条件会**死锁等一个永远不来的信号**。状态只在
 `capture_initialized && first_video_frame` 都为真后才推到 `running`；
 超时则判 `failed`，**不会**假装在录。
+
+**Windows 后端的可观测性更弱，必须如实报 `unknown`**：obs-websocket 不传帧、
+也没有音频采样，所以 `first_video_frame` 与 `audio_signal_observed` 在 Windows 上
+**拿不到**。`outputBytes` 在涨**绝不**等于"录到了画面"——它只证明输出在写。
+不要把这两个里程碑用"StartRecord 成功 + 字节在涨"顶替。
 
 ## 结论怎么读
 

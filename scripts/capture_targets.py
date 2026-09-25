@@ -114,9 +114,13 @@ BACKENDS: Dict[str, BackendCapability] = {
     "windows": BackendCapability(
         backend="windows-obs-websocket",
         platform="windows",
-        video_granularities=["app", "window"],
+        # 只做 window_capture（**单窗口**）。不把窗口采集改个名字就声称支持 app 级画面 ——
+        # 真要 app 级得用 game_capture/进程匹配另做。此处如实只报 ["window"]。
+        video_granularities=["window"],
         audio_granularities=["none", "app"],
         audio_per_window_os_capable=False,
+        # 恒为 none 直到有 Windows 实机证据。这与后端自己的 verification_level
+        # （描述"这次连到了哪一层"）是两件事，各说各的。
         verified_level="none",
         verified_scope="**未在 Windows 实机验证**（本机 macOS；tailnet 内那台 Windows "
                        "无可用凭据）。mock 只证明协议/状态机，不证明能录到画面或声音。",

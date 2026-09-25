@@ -376,11 +376,28 @@ def test_window_audio_mode_not_silently_downgraded() -> None:
 
 def test_windows_exe_not_treated_as_bundle() -> None:
     """Windows 的 game.exe 不能被套 macOS 的 bundle id 规则。"""
-    t, p = resolve(platform="windows", video_app="game.exe")
+    t, _ = resolve(platform="windows", video_app="game.exe")
     ck("Windows .exe 按 app 名处理（不是 bundle_id）",
        t.video.app_name == "game.exe" and not t.video.bundle_id,
        f"app_name={t.video.app_name!r} bundle={t.video.bundle_id!r}")
-    ck("Windows .exe 目标通过基本校验", not p, f"{p}")
+
+
+def test_windows_only_window_video() -> None:
+    """Windows 后端**只做单窗口**：不靠改名声称支持 app 级画面。"""
+    cap = ct.capability("windows")
+    ck("Windows video_granularities 只有 window",
+       cap.video_granularities == ["window"], str(cap.video_granularities))
+    _t, p = resolve(platform="windows", video_app="game.exe")
+    ck("Windows app 级画面请求被拒（本后端未实现）",
+       any("本后端未实现" in x for x in p), f"{p}")
+    # 单窗口是支持的形状
+    t2 = ct.CaptureTarget(platform="windows")
+    t2.video.granularity = "window"
+    t2.video.window_title = "Slay the Spire 2"
+    t2.video.app_name = "SlayTheSpire2.exe"
+    t2.audio.granularity = "none"
+    p2 = ct.validate_target(t2, "windows")
+    ck("Windows 单窗口请求通过", not p2, f"{p2}")
 
 
 def test_negative_ids_rejected() -> None:
@@ -443,6 +460,7 @@ def main() -> int:
     test_invalid_audio_mode_rejected()
     test_window_audio_mode_not_silently_downgraded()
     test_windows_exe_not_treated_as_bundle()
+    test_windows_only_window_video()
     test_negative_ids_rejected()
     test_verified_levels_documented()
     print(f"\n{PASS} passed, {FAIL} failed")
