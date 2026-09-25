@@ -68,6 +68,17 @@ struct Options {
     var maxSeconds = 3600.0
     var cursor = false
     var noVideo = false
+    // `--no-audio`：**真的**不录音频。
+    // 只在 worker 层"不要求声音"是不够的 —— 原生这里若照旧 capturesAudio=true
+    // 并挂上音频输入/输出，就会**意外收到同一个 app 其它窗口的声音**，
+    // 而调用方以为自己关掉了音频。必须 cfg / writer / output / 元数据四处一致关闭。
+    var noAudio = false
+    // 期望的窗口标题（pin）。
+    // 窗口 ID 是稳定的，但**窗口里显示什么会变**：浏览器同一个窗口切个标签，
+    // ID 不变、内容全变。实测踩到过一次 —— 探到的是本地 live viewer，
+    // 起录时那个窗口已经切成了别的页面，于是"录到了完全不相干的东西"。
+    // 给了这个参数就在命中窗口后**核对标题**，不一致直接失败。
+    var expectWindowTitle = ""
     var probe = false
     var videoBitrate = 12_000_000
     var quiet = false
@@ -121,6 +132,8 @@ struct Options {
             case "--video-bitrate": o.videoBitrate = Int(try value("--video-bitrate")) ?? 12_000_000
             case "--cursor": o.cursor = true
             case "--no-video": o.noVideo = true
+            case "--no-audio": o.noAudio = true
+            case "--expect-window-title": o.expectWindowTitle = try value("--expect-window-title")
             case "--probe": o.probe = true
             case "--quiet": o.quiet = true
             case "--overwrite": o.overwrite = true
@@ -152,6 +165,12 @@ struct Options {
                   --max-width <px>            输出视频最大宽度，默认 1920
                   --cursor                    把系统光标画进画面（默认不画）
                   --no-video                  只录音频（该模式的产物请用 verify --expect audio 校验）
+                  --expect-window-title <t>   起录前核对命中窗口的标题必须等于 <t>。
+                                              **窗口 ID 稳定但内容会变**（浏览器切标签），
+                                              不一致直接失败，避免静默录到别的东西。
+                  --no-audio                  **真的**不录音频：产物没有音频轨，
+                                              cfg/writer/stream/元数据四处一致关闭。
+                                              与 --no-video 不能同时给（那样什么都没录）。
                   --focus-log <path.jsonl>    录制期间每 0.5s 记一行：前台 app / 游��窗口是否在屏 + 位置
                                               注意：记的是"前台 app"，不等于游戏窗口 key 状态
                   --focus-interval <sec>      前台采样间隔，默认 0.5
@@ -584,6 +603,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         // 用法错误在要权限之前就报掉：没目标就没必要去申请屏幕录制权限。
         // 窗口粒度下，--window/--window-title 本身就是选择器，所以不再强制 app 选择器。
         let hasAppSelector = opts.pid > 0 || opts.bundleIdSet || !opts.appName.isEmpty
+        // 两个都关 = 什么都不录：明确拒绝，而不是产出一个空壳文件
+        guard !(opts.noVideo && opts.noAudio) else {
+            throw CliError.usage("--no-video 与 --no-audio 不能同时给："
+                                 + "那样画面和声音都没有，这不是一次录制。")
+        }
         guard hasAppSelector || Recorder.windowMode(opts) else {
             throw CliError.usage(
                 "必须显式指定录制目标：--bundle-id <id> / --app-name <name> / --pid <pid>，"
@@ -618,6 +642,18 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             case .failure(let msg):
                 throw CliError.runtime("目标窗口未命中，拒绝改抓别的窗口/app：\(msg)")
             case .success(let w):
+                // pin 核对：窗口 ID 稳定 ≠ 内容稳定
+                if !opts.expectWindowTitle.isEmpty {
+                    let actual = w.title ?? ""
+                    if actual != opts.expectWindowTitle {
+                        throw CliError.runtime(
+                            "目标窗口 #\(w.windowID) 的标题已变："
+                            + "期望 \(opts.expectWindowTitle.debugDescription)，"
+                            + "实际 \(actual.debugDescription)。\n"
+                            + "窗口 ID 不变但内容可能整个换掉（例如浏览器切了标签），"
+                            + "继续录会录到不相干的东西。请重新预检确认目标。")
+                    }
+                }
                 guard let owner = w.owningApplication else {
                     throw CliError.runtime("命中窗口 #\(w.windowID) 但拿不到所属 app，无法确定音频范围")
                 }
@@ -715,7 +751,10 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         cfg.showsCursor = opts.cursor
         cfg.colorSpaceName = CGColorSpace.sRGB
         // —— 音频：只要系统里这个 app 的音频，不要麦克风 ——
-        cfg.capturesAudio = true
+        // `--no-audio` 时**真的不抓**：不能只在调用方那层"不要求声音"，
+        // 否则这里照旧 capturesAudio=true 会**意外收到同一 app 其它窗口的声音**。
+        let audioEnabled = !opts.noAudio
+        cfg.capturesAudio = audioEnabled
         cfg.sampleRate = 48_000
         cfg.channelCount = 2
         cfg.excludesCurrentProcessAudio = true
@@ -745,8 +784,10 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
                                 ? "画面是单个窗口，但音频是该 app 级的：可能含该 app 其它窗口的声音"
                                 : "画面与音频都是 app 级",
                              "selector": Recorder.selectorDescription(opts),
-                             "captures_audio": true, "capture_microphone": false,
-                             "sample_rate": 48_000, "channels": 2,
+                             "captures_audio": audioEnabled,
+                             "capture_microphone": false,
+                             "sample_rate": audioEnabled ? 48_000 : NSNull(),
+                             "channels": audioEnabled ? 2 : NSNull(),
                              "excludes_current_process_audio": true]
 
         let url = URL(fileURLWithPath: opts.out)
@@ -781,16 +822,18 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             else { throw CliError.runtime("AVAssetWriter 无法添加视频轨") }
         }
 
-        let aSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 2,
-            AVEncoderBitRateKey: 192_000,
-        ]
-        let ai = AVAssetWriterInput(mediaType: .audio, outputSettings: aSettings)
-        ai.expectsMediaDataInRealTime = true
-        if writer.canAdd(ai) { writer.add(ai); audioInput = ai }
-        else { throw CliError.runtime("AVAssetWriter 无法添加音频轨") }
+        if audioEnabled {
+            let aSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 48_000,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: 192_000,
+            ]
+            let ai = AVAssetWriterInput(mediaType: .audio, outputSettings: aSettings)
+            ai.expectsMediaDataInRealTime = true
+            if writer.canAdd(ai) { writer.add(ai); audioInput = ai }
+            else { throw CliError.runtime("AVAssetWriter 无法添加音频轨") }
+        }
 
         guard writer.startWriting() else {
             throw CliError.runtime("AVAssetWriter.startWriting 失败: \(writer.error?.localizedDescription ?? "unknown")")
@@ -798,7 +841,9 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
 
         let stream = SCStream(filter: filter, configuration: cfg, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
+        if audioEnabled {
+            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
+        }
         self.stream = stream
         try await stream.startCapture()
         queue.sync {
@@ -1100,7 +1145,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         if abortedBeforeSamples { problems.append("在采集到任何采样之前就被停止（没有可交付内容）") }
         if let fr = forcedCloseReason { problems.append("收尾异常：\(fr)") }
         if tracksVerified {
-            if !audioInFile { problems.append("产出文件里没有音频轨") }
+            // `--no-audio` 时没有音轨是**预期**的，不是缺陷
+            if !opts.noAudio && !audioInFile { problems.append("产出文件里没有音频轨") }
             if needVideo && !videoInFile { problems.append("产出文件里没有视频轨") }
         }
         // 目标窗口在录制期间消失过：这是**真实**的采集缺陷，必须进 problems，
@@ -1166,6 +1212,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
                 "appends_ok": videoAppendsOK,
             ],
             "audio": [
+                "enabled": !opts.noAudio,
+                "capture_requested": !opts.noAudio,
+                "note": opts.noAudio
+                    ? "本次用 --no-audio：cfg.capturesAudio=false，未挂音频输入/输出，产物**没有**音频轨"
+                    : "按所属 app 抓取音频（粒度是 app，不是单窗口）",
                 "buffers": audioBuffers,
                 "samples_per_channel": audioSamples,
                 "source_format": audioFormatDesc,
@@ -1209,8 +1260,16 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
 
         // 结论性判定：轨道是否真的写进文件（查不到就标 unverified，不用 buffers>0 冒充）
         var verdict: [String: Any] = [:]
-        verdict["audio_track_present"] = tracksVerified ? audioInFile : NSNull()
-        verdict["audio_track_present_basis"] = tracksVerified ? "file_tracks" : "unverified"
+        if opts.noAudio {
+            // 本次**没要**音频：不能声称有音轨，也不该被读成"应该有一条却没有"。
+            verdict["audio_track_present"] = NSNull()
+            verdict["audio_track_present_basis"] = "not_requested"
+            verdict["audio_requested"] = false
+        } else {
+            verdict["audio_track_present"] = tracksVerified ? audioInFile : NSNull()
+            verdict["audio_track_present_basis"] = tracksVerified ? "file_tracks" : "unverified"
+            verdict["audio_requested"] = true
+        }
         verdict["audio_buffers_seen"] = audioBuffers
         verdict["audio_appends_ok"] = audioAppendsOK
         verdict["audio_has_signal"] = peak > 0.0005   // 约 -66 dBFS

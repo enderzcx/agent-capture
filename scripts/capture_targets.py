@@ -269,6 +269,8 @@ class VideoTarget:
     pid: int = 0
     window_id: int = 0
     window_title: str = ""
+    # 起录时要求窗口标题必须等于它（防"ID 不变但内容换了"）
+    expect_window_title: str = ""
     explicit_display: bool = False
 
     def selectors(self) -> List[str]:

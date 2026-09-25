@@ -150,6 +150,7 @@ def main(argv=None) -> int:
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--max-width", type=int, default=1920)
     ap.add_argument("--no-video", action="store_true")
+    ap.add_argument("--overwrite", action="store_true")
     a = ap.parse_args(argv)
 
     job_dir = Path(a.job_dir)
@@ -207,16 +208,37 @@ def main(argv=None) -> int:
 
     # —— 构造启动参数并起录制器 ——
     try:
+        # 音频粒度 none = **真的**不录，而不只是"不要求声音"。
+        # 只在这层忽略静音错误是不够的：原生照旧 capturesAudio=true，
+        # 会**意外收到同一个 app 其它窗口的声音**，而调用方以为关掉了。
+        audio_gran = str(((target or {}).get("audio") or {}).get("granularity") or "")
+        want_audio = audio_gran not in ("", "none")
+        no_audio_flag = not want_audio
+
+        # 自相矛盾的组合要**明确拒绝**，不静默产出无声的"音频"文件
+        if no_audio_flag and a.expect == "audio":
+            cs.transition(job_dir, run_id, "failed", note="audio-only + no-audio",
+                          error="自相矛盾：expect=audio（只要音频）但目标音频粒度是 none。"
+                                "拒绝产出不含音频的『音频』录制。")
+            return EXIT_USAGE
+        if no_audio_flag and (a.no_video or a.expect == "audio"):
+            cs.transition(job_dir, run_id, "failed", note="nothing to record",
+                          error="画面与音频都被关掉了：拒绝一次什么都不录的运行。")
+            return EXIT_USAGE
+
         rec_argv = backend.build_start_argv(
             target, str(out), duration=a.duration, fps=a.fps,
             max_width=a.max_width, focus_log=str(focus), metrics_json=str(metrics),
-            live_status=str(live), live_token=run_token, no_video=a.no_video)
-    except TypeError:
-        # 后端还没支持 live_token（例如未更新的 Windows 桥）→ 明确失败，
-        # **不**退化成"没有令牌也照跑"（那正是要修的问题）。
-        log("后端 build_start_argv 不接受 live_token：无法保证进度文件属于本次 run")
-        cs.transition(job_dir, run_id, "failed", note="backend lacks live_token",
-                      error="后端不支持 --live-token，拒绝在没有 run 令牌的情况下继续")
+            live_status=str(live), live_token=run_token, no_video=a.no_video,
+            overwrite=a.overwrite, no_audio=no_audio_flag)
+    except TypeError as exc:
+        # 后端签名不接受我们要求的参数（live_token / no_audio）→ 明确失败，
+        # **不**退化成"少传一个也照跑"。
+        # 归因要写准：早期版本一律说"不支持 live_token"，掩盖了真实的参数问题。
+        log(f"后端 build_start_argv 拒绝我们的参数：{exc}")
+        cs.transition(job_dir, run_id, "failed", note="backend kwargs unsupported",
+                      error=f"后端 build_start_argv 不接受本次所需参数"
+                            f"（live_token / no_audio）：{exc}")
         return EXIT_START_FAILED
     except (ValueError, AttributeError) as exc:
         log(f"构造启动参数失败: {exc}")
@@ -525,6 +547,20 @@ def main(argv=None) -> int:
     except Exception as exc:
         vres = {"result": "unknown", "notes": f"verify 抛错: {exc}"}
     vres["audio_signal_observed"] = audio_signal
+
+    # **`audio:none` 不该因为"没有声音"而失败。**
+    # 源本身没有音频（例如纯网页画面）时，录制器仍会写一条静音轨；verify 会如实
+    # 报"整段没有超过静音门槛的信号"，但那不是这次录制的缺陷 —— 我们**本来就没要**声音。
+    # 判据只用实测：视频的帧在到达、轨道核实过，且本次不要求音频。
+    if not req["audio"] and vres.get("result") == "fail":
+        video_evidence_ok = bool(verdict.get("video_frames_arriving")) and bool(verdict.get("tracks_verified"))
+        if video_evidence_ok and video_present:
+            vres["result"] = "pass"
+            vres["note_audio_not_required"] = (
+                "本次未要求音频（audio_scope=none）：verify 报的静音不作为失败。"
+                "视频侧实测通过（帧在持续到达、轨道已核实）。")
+            vres["original_verify_result"] = "fail"
+            vres["original_verify_reason"] = (vres.get("notes") or "")[:200]
 
     # **组合判定**：capture 与 verify 都通过才叫 verified。
     # 早期版本只看 verify —— 于是"提前停止 / 目标消失 / 非零退出"会被

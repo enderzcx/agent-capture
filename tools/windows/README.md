@@ -103,3 +103,58 @@ This module was written against the official sources, not third-party write-ups:
 - [`libobs/util/windows/window-helpers.c`](https://github.com/obsproject/obs-studio/blob/master/libobs/util/windows/window-helpers.c) -- the `title:class:exe` window string, the match-priority enum and the scoring loop
 
 Their source is **not** vendored here; see [`LICENSE-NOTES.md`](LICENSE-NOTES.md).
+
+
+---
+
+## 统一 CLI 的 Windows 用法（experimental，**无实机**）
+
+`agent_capture.py` 的 Windows 路径**薄分派**到本模块的 `run(command, config)`，
+不落回"起一个录制器子进程"的通用形态 —— 那会丢掉本模块真正有价值的东西：
+专用 profile/scene 隔离、启动前原子预约 run、实例锁、**owner-only stop**。
+
+```bash
+CAP=./scripts/agent_capture.py
+
+# 预检（只读，不动 OBS 会话）
+python3 $CAP preflight --platform windows --windows-obs \
+  --video-app "$OBS_WINDOW_STRING" --obs-record-dir 'D:\\agent-capture\\recordings'
+
+# 开始录制。**产物落点由 --obs-record-dir 决定**，不是 --out。
+# --out 在本后端上没有语义 → 会被**明确拒绝**（不静默忽略）。
+python3 $CAP start --platform windows --windows-obs \
+  --video-app "$OBS_WINDOW_STRING" --obs-record-dir 'D:\\agent-capture\\recordings' \
+  --duration 30 --run-id take-001
+#   → 返回 ownership.session_token，后面 status/stop 必须带上它
+
+# 查状态 / 停止（owner-only：token 是入场券）
+python3 $CAP status --windows-obs --session-token "<上一步的 token>"
+python3 $CAP stop   --windows-obs --session-token "<上一步的 token>"
+```
+
+### 参数映射（按本模块真实的 config 契约）
+
+| CLI | 模块 config | 说明 |
+|---|---|---|
+| `--obs-host` / `--obs-port` | `host` / `port` | 默认 `127.0.0.1:4455` |
+| `--obs-password-env` | `password_env` | **只传环境变量名**，不接收明文密码 |
+| `--obs-profile` / `--obs-scene-collection` / `--obs-scene` | 同名 | 专用会话，必须与当前 OBS 一致 |
+| `--obs-source-name` | `source_name` | 受管的 window_capture 源名 |
+| `--obs-record-dir` | `record_dir` | **产物落点的唯一来源** |
+| `--duration` | `max_record_seconds` | 必须有限且为正 |
+| `--audio-mode none` | `capture_audio: false` | 布尔 |
+| `--run-id` | `run_id` | 启动前原子预约，同 run 第二次被拒 |
+
+**明确拒绝**（不静默忽略）：`--out`（落点由 record_dir 决定）、
+`--no-video`、`--no-audio`（请用 `--audio-mode none`）。
+
+### 停止方式
+
+**不是** kill 进程：`stop` 向 OBS 发 `StopRecord`，且必须先通过身份核验
+（profile / scene / source / 目标窗口 / 目录 / OBS 版本 / 输出时长自洽 / 字节单调）。
+token 只是入场券，**不是**所有权证明。
+
+### 仍然未验证
+
+**没有 Windows 实机、没有真实 OBS**：本模块证明了协议与策略，**没有**证明
+能录到画面或声音。`picture_verified` 恒为 `false`；`verified_level` 在有实机证据前恒为 `none`。

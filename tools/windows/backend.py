@@ -36,6 +36,7 @@ obs-websocket **不传帧、也没有音频采样**，所以这两个里程碑�
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -83,7 +84,11 @@ def availability() -> Dict[str, Any]:
         "verified_level": VERIFIED_LEVEL, "verified_scope": VERIFIED_SCOPE,
         "requires": REQUIRES,
     }
-    if sys.platform != "win32":
+    # 平台判定。`AGENT_CAPTURE_TEST_PLATFORM` 是**仅供假 transport 合同测试**的开关：
+    # 它只影响"可用性判定走哪条分支"，**不会**让 Windows 采集真的在本机可用 ——
+    # 真正的能力仍然由 OBS 是否存在、以及模块自己的 transport 决定。
+    effective = os.environ.get("AGENT_CAPTURE_TEST_PLATFORM") or sys.platform
+    if effective != "win32":
         out["reason"] = (f"本后端只在 Windows 上可用（当前 sys.platform={sys.platform!r}）；"
                          f"协议层可离线测试，但采集需要 Windows + OBS")
         return out
@@ -183,7 +188,15 @@ def preflight(target: Dict[str, Any], *, probe_json: Optional[Dict[str, Any]] = 
     """只读预检（= 模块的 `preflight`，保证 `read_only=true`，不动 OBS 会话）。"""
     av = availability()
     if not av["available"]:
+        # 即使不可用，也要把**匹配语义**带出来：下游若因为缺字段而把
+        # "没有 target_match" 读成"匹配没问题"，就会在最不该放行时放行。
         return {"ok": False, "problems": [av["reason"]],
+                "target_match": "unavailable",
+                "hwnd_pinning": False,
+                "match_dimensions": ["title", "class", "exe"],
+                "match_note": ("后端不可用，未做任何目标确认。"
+                               "OBS 官方 window capture 按 title/class/exe 匹配，"
+                               "同名/同类/同 exe 的窗口可能被重绑；本后端不承诺精确 HWND。"),
                 "verified_level": VERIFIED_LEVEL, "verified_scope": VERIFIED_SCOPE}
     cfg = _config_from_env()
     cfg["target"] = _target_from_capture_target(target)
@@ -193,12 +206,35 @@ def preflight(target: Dict[str, Any], *, probe_json: Optional[Dict[str, Any]] = 
         return {"ok": False, "problems": [f"preflight 失败: {exc}"],
                 "verified_level": VERIFIED_LEVEL, "verified_scope": VERIFIED_SCOPE}
     problems = []
+    err = res.get("error")
+    cat = err.get("category") if isinstance(err, dict) else err
     if not res.get("ok", False):
-        cat = (res.get("error") or {}).get("category") if isinstance(res.get("error"), dict) \
-            else res.get("error")
         problems.append(f"后端预检未通过（{cat}）")
+
+    # —— 目标匹配语义必须**如实**传下去 ——
+    # OBS 的 Window Capture 官方会按 title/class/exe 匹配，**可能重绑到同类窗口**。
+    # 模块的 check_target_present 只在"精确串命中"时放行，拿不到窗口列表就
+    # TARGET_UNCONFIRMED 拒绝（unknown 不当 found）。桥接层不许把这个信息抹掉，
+    # 更不许把"按 title 命中的对象"说成"精确的窗口 id"。
+    if res.get("ok"):
+        target_match = "exact"          # 模块只在精确命中时 ok
+    elif cat == "TARGET_UNCONFIRMED":
+        target_match = "unconfirmed"    # 枚举不可用 -> 未确认
+    elif cat == "TARGET_NOT_FOUND":
+        target_match = "not_found"
+    else:
+        target_match = "unconfirmed"
+
     return {"ok": res.get("ok", False), "problems": problems, "raw": res,
             "read_only": res.get("read_only", True),
+            "target_match": target_match,
+            # 这三条是给下游防误读用的：**没有** HWND pin，匹配可能被 OBS 重绑
+            "hwnd_pinning": False,
+            "match_dimensions": ["title", "class", "exe"],
+            "match_note": ("OBS 官方 window capture 按 title/class/exe 匹配，"
+                           "同名/同类/同 exe 的窗口**可能**被重绑；"
+                           "本后端不承诺精确 HWND。target_match=exact 只表示"
+                           "'请求的窗口串当前在 OBS 列表里'，不表示绑定了某个 HWND。"),
             "verified_level": res.get("verification_level", VERIFIED_LEVEL),
             "verified_scope": VERIFIED_SCOPE}
 

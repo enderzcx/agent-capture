@@ -34,6 +34,18 @@ run "capture_worker（假录制器反例：令牌/期望轨道/提前退出/组�
 run "agent_capture CLI（命令分发/退出码/生命周期/不覆盖）" \
     "$PY" "$ROOT/tests/test_agent_capture_cli.py"
 
+run "capture report（无证据不许 true：缺 metrics/无令牌/无产物/帧不连续）" \
+    "$PY" "$ROOT/tests/test_capture_report.py"
+
+run "Cloud 收尾三项（完整性判定 / duration 拒绝 / Windows 桥接语义）" \
+    "$PY" "$ROOT/tests/test_final_regressions.py"
+
+run "--no-audio 条件路径（真的不录音频 / 对照 / 腐败文件仍失败）" \
+    "$PY" "$ROOT/tests/test_no_audio.py"
+
+run "Windows 统一 CLI 假 transport 合同（unavailable / owner-only stop / 薄分派）" \
+    "$PY" "$ROOT/tests/test_windows_cli_contract.py"
+
 printf '\n'
 if [ "$rc" -eq 0 ]; then
   printf '\033[32m离线测试全部通过\033[0m\n'

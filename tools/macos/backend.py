@@ -188,6 +188,11 @@ def _target_to_argv(target: Dict[str, Any]) -> List[str]:
             argv += ["--window", str(int(v["window_id"]))]
         elif v.get("window_title"):
             argv += ["--window-title", str(v["window_title"])]
+    # —— 窗口标题 pin：**防"ID 不变但内容换了"** ——
+    # 预检时看到的标题必须与起录时一致；不一致由录制器直接失败。
+    expect_title = v.get("expect_window_title") or ""
+    if expect_title:
+        argv += ["--expect-window-title", str(expect_title)]
     # app 选择器（窗口粒度下也用来把范围钉死到一个 app）
     if v.get("pid"):
         argv += ["--pid", str(int(v["pid"]))]
@@ -277,7 +282,8 @@ def build_start_argv(target: Dict[str, Any], out_path: str, *, duration: float =
                      metrics_json: str = "", live_status: str = "",
                      live_token: str = "",
                      overwrite: bool = False,
-                     no_video: bool = False) -> List[str]:
+                     no_video: bool = False,
+                     no_audio: bool = False) -> List[str]:
     """构造**真正启动录制**的完整参数。"""
     argv = [str(BIN)] + _target_to_argv(target)
     argv += ["--out", out_path]
@@ -300,6 +306,9 @@ def build_start_argv(target: Dict[str, Any], out_path: str, *, duration: float =
         argv += ["--live-token", live_token]
     if no_video:
         argv += ["--no-video"]
+    if no_audio:
+        # **真的**不录音频（不是"不要求声音"）：cfg/writer/stream/元数据四处一致关闭
+        argv += ["--no-audio"]
     if overwrite:
         argv += ["--overwrite"]
     return argv

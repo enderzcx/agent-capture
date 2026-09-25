@@ -177,13 +177,15 @@ def availability():
 
 def build_start_argv(target, out_path, *, duration=0.0, fps=30, max_width=1920,
                      focus_log="", status_file="", metrics_json="",
-                     live_status="", live_token="", overwrite=False, no_video=False):
+                     live_status="", live_token="", overwrite=False, no_video=False,
+                     no_audio=False):
     argv = [sys.executable, str(FAKE_REC), "--out", out_path]
     if duration: argv += ["--duration", str(duration)]
     if metrics_json: argv += ["--json", metrics_json]
     if live_status: argv += ["--live-status", live_status]
     if live_token: argv += ["--live-token", live_token]
     if no_video: argv += ["--no-video"]
+    if no_audio: argv += ["--no-audio"]
     return argv
 
 def verify(media_path, expect="av"):
@@ -457,7 +459,8 @@ def test_backend_without_live_token_is_refused() -> None:
     st = cs.load_run(job, rid)
     ck("缺 live_token 支持 → failed", st.status == "failed", f"status={st.status}")
     ck("退出码 3", r.returncode == 3, f"rc={r.returncode}")
-    ck("说明原因", "live-token" in (st.error or ""), str(st.error))
+    ck("说明原因（指向参数问题，不掩盖）",
+       ("live_token" in (st.error or "") or "live-token" in (st.error or "")), str(st.error))
     shutil.rmtree(tmp, ignore_errors=True)
 
 

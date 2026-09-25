@@ -114,7 +114,8 @@ def preflight(target, probe_json=None, timeout=30.0):
     return {"ok": True, "problems": [], "argv": ["--fake"], "read_only": True}
 def build_start_argv(target, out_path, *, duration=0.0, fps=30, max_width=1920,
                      focus_log="", status_file="", metrics_json="",
-                     live_status="", live_token="", overwrite=False, no_video=False):
+                     live_status="", live_token="", overwrite=False, no_video=False,
+                     no_audio=False):
     argv = [sys.executable, str(HERE / "fake_recorder.py"), "--out", out_path]
     if duration: argv += ["--duration", str(duration)]
     if metrics_json: argv += ["--json", metrics_json]
