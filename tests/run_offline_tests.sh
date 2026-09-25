@@ -31,6 +31,9 @@ run "capture_state（状态机 / 并发 / 原子写 / CAS / 版本绑定）" \
 run "capture_worker（假录制器反例：令牌/期望轨道/提前退出/组合判定/清理）" \
     "$PY" "$ROOT/tests/test_capture_worker.py"
 
+run "agent_capture CLI（命令分发/退出码/生命周期/不覆盖）" \
+    "$PY" "$ROOT/tests/test_agent_capture_cli.py"
+
 printf '\n'
 if [ "$rc" -eq 0 ]; then
   printf '\033[32m离线测试全部通过\033[0m\n'

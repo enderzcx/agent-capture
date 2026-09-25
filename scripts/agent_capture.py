@@ -45,9 +45,19 @@ TOOL_VERSION = "agent-capture 0.1.0"
 
 
 def _load_backend(platform: str):
-    """按平台加载后端模块。缺失就**明确报错**，不静默退化成"没有后端也能跑"。"""
+    """按平台加载后端模块。缺失就**明确报错**，不静默退化成"没有后端也能跑"。
+
+    `AGENT_CAPTURE_BACKEND_DIR` 是**显式**的后端覆盖（测试、或后端装在非默认位置）。
+    默认只用仓库内实现。
+    """
     if platform == "macos":
+        # 顺序很重要：后插入的排在 sys.path 更前面。
+        # 先放仓库内实现，再放覆盖目录 —— 这样覆盖才真的**覆盖**得了。
+        # （反过来写会让覆盖静默失效，测试里表现为"用了真后端"，很难查。）
         sys.path.insert(0, str(HERE.parent / "tools" / "macos"))
+        override = os.environ.get("AGENT_CAPTURE_BACKEND_DIR")
+        if override:
+            sys.path.insert(0, override)
         return importlib.import_module("backend")
     if platform == "windows":
         p = HERE.parent / "tools" / "windows" / "backend.py"
