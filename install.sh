@@ -224,6 +224,6 @@ else
 fi
 
 say ""
-ok "安装完成（版本 $VERSION）"
+ok "安装完成（版本 ${VERSION}）"
 say "  卸载：rm -rf '$SKILL_DEST' '$SNAP_DIR'"
 say "  回滚：mv '$SKILL_DEST' /tmp/x && mv '$BACKUP_ROOT/<最新备份>' '$SKILL_DEST'"
